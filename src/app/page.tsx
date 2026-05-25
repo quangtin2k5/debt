@@ -29,6 +29,13 @@ import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 type DebtSide = "I_OWE" | "THEY_OWE";
 type TxType = "DEBT" | "PAYMENT";
 
+type ToastType = "success" | "error" | "info" | "warning";
+type Toast = {
+  id: string;
+  message: string;
+  type: ToastType;
+};
+
 type Contact = {
   id: string;
   user_id: string;
@@ -111,6 +118,15 @@ export default function Home() {
   const [otpArray, setOtpArray] = useState(["", "", "", "", "", ""]);
   const [authMessage, setAuthMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const showToast = (message: string, type: ToastType = "success") => {
+    const id = Math.random().toString(36).substring(2, 9);
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
+  };
 
   const [tab, setTab] = useState<DebtSide>("I_OWE");
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -211,7 +227,8 @@ export default function Home() {
     const txResult = await supabase
       .from("debt_transactions")
       .select("*")
-      .order("happened_at", { ascending: false });
+      .order("happened_at", { ascending: false })
+      .order("created_at", { ascending: false });
     if (txResult.error) setAppMessage(txResult.error.message);
     else setAllTransactions((txResult.data ?? []) as DebtTransaction[]);
   }
@@ -222,7 +239,8 @@ export default function Home() {
       .from("debt_transactions")
       .select("*")
       .eq("contact_id", contactId)
-      .order("happened_at", { ascending: false });
+      .order("happened_at", { ascending: false })
+      .order("created_at", { ascending: false });
     if (!error) {
       setTransactions((data ?? []) as DebtTransaction[]);
       setAllTransactions((current) => {
@@ -248,16 +266,23 @@ export default function Home() {
 
       if (!registerResponse.ok) {
         setAuthMessage(registerResult.error ?? "Không tạo được tài khoản.");
+        showToast(registerResult.error ?? "Không tạo được tài khoản.", "error");
       } else {
         const { error } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
-        if (error) setAuthMessage(error.message);
-        else setAuthMessage("");
+        if (error) {
+          setAuthMessage(error.message);
+          showToast(error.message, "error");
+        } else {
+          setAuthMessage("");
+          showToast("Tạo tài khoản và đăng nhập thành công!", "success");
+        }
       }
     } catch (e: any) {
       setAuthMessage(e.message || "Đã xảy ra lỗi.");
+      showToast(e.message || "Đã xảy ra lỗi.", "error");
     } finally {
       setBusy(false);
     }
@@ -318,7 +343,13 @@ export default function Home() {
 
     if (mode === "login") {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
-      setAuthMessage(error?.message ?? "");
+      if (error) {
+        setAuthMessage(error.message);
+        showToast(error.message, "error");
+      } else {
+        setAuthMessage("");
+        showToast("Đăng nhập thành công! Chào mừng bạn trở lại.", "success");
+      }
     }
 
     if (mode === "register") {
@@ -328,11 +359,14 @@ export default function Home() {
         body: JSON.stringify({ email }),
       });
       const result = (await response.json()) as { error?: string };
-      if (!response.ok) setAuthMessage(result.error ?? "Không gửi được OTP.");
-      else {
+      if (!response.ok) {
+        setAuthMessage(result.error ?? "Không gửi được OTP.");
+        showToast(result.error ?? "Không gửi được OTP.", "error");
+      } else {
         setOtpArray(["", "", "", "", "", ""]);
         setMode("otp");
         setAuthMessage("Đã gửi mã OTP bằng Gmail cá nhân. Hãy kiểm tra Hộp thư đến hoặc Spam.");
+        showToast("Đã gửi mã OTP thành công! Hãy kiểm tra Gmail.", "success");
       }
     }
 
@@ -340,6 +374,7 @@ export default function Home() {
       const code = otpArray.join("");
       if (code.length !== 6) {
         setAuthMessage("Vui lòng nhập đầy đủ 6 chữ số OTP.");
+        showToast("Vui lòng nhập đầy đủ 6 chữ số OTP.", "warning");
         setBusy(false);
         return;
       }
@@ -352,6 +387,7 @@ export default function Home() {
   async function resendOtp() {
     if (!email) {
       setAuthMessage("Nhập Gmail trước khi gửi lại OTP.");
+      showToast("Nhập Gmail trước khi gửi lại OTP.", "warning");
       return;
     }
     setBusy(true);
@@ -364,8 +400,10 @@ export default function Home() {
     if (response.ok) {
       setOtpArray(["", "", "", "", "", ""]);
       setAuthMessage("Đã gửi lại OTP bằng Gmail cá nhân.");
+      showToast("Đã gửi lại mã OTP thành công!", "success");
     } else {
       setAuthMessage(result.error ?? "Không gửi được OTP.");
+      showToast(result.error ?? "Không gửi được OTP.", "error");
     }
     setBusy(false);
   }
@@ -383,7 +421,9 @@ export default function Home() {
     setBusy(false);
     if (error) {
       setAppMessage(error.message);
+      showToast(error.message, "error");
     } else {
+      showToast(`Đã tạo hồ sơ "${contactName.trim()}" thành công!`, "success");
       setContactName("");
       setContactModal(false);
       loadContacts();
@@ -399,6 +439,7 @@ export default function Home() {
     const cleanAmount = Number(txAmount.replace(/\D/g, ""));
     if (isNaN(cleanAmount) || cleanAmount <= 0) {
       setAppMessage("Số tiền không hợp lệ.");
+      showToast("Số tiền không hợp lệ.", "warning");
       setBusy(false);
       return;
     }
@@ -413,7 +454,10 @@ export default function Home() {
     setBusy(false);
     if (error) {
       setAppMessage(error.message);
+      showToast(error.message, "error");
     } else {
+      const typeLabel = txType === "DEBT" ? "nợ thêm" : "trả nợ";
+      showToast(`Đã ghi nhận giao dịch ${typeLabel} ${currency(cleanAmount)}!`, "success");
       setTxAmount("");
       setTxNote("");
       setTxType("DEBT");
@@ -440,7 +484,9 @@ export default function Home() {
     setBusy(false);
     if (error) {
       setAppMessage(error.message);
+      showToast(error.message, "error");
     } else {
+      showToast(`Đã cập nhật thông tin "${editContactName.trim()}" thành công!`, "success");
       setSelected({ ...selected, name: editContactName.trim(), side: editContactSide });
       setEditContactModal(false);
       loadContacts();
@@ -461,6 +507,7 @@ export default function Home() {
     if (txError) {
       setBusy(false);
       setAppMessage("Lỗi xóa giao dịch liên quan: " + txError.message);
+      showToast("Lỗi xóa giao dịch liên quan: " + txError.message, "error");
       return;
     }
     
@@ -471,7 +518,9 @@ export default function Home() {
     setBusy(false);
     if (error) {
       setAppMessage("Lỗi xóa người nợ: " + error.message);
+      showToast("Lỗi xóa người nợ: " + error.message, "error");
     } else {
+      showToast(`Đã xóa người nợ "${selected.name}" thành công!`, "info");
       setSelected(null);
       setEditContactModal(false);
       setDeleteContactConfirm(false);
@@ -489,6 +538,7 @@ export default function Home() {
     const cleanAmount = Number(editTxAmount.replace(/\D/g, ""));
     if (isNaN(cleanAmount) || cleanAmount <= 0) {
       setAppMessage("Số tiền không hợp lệ.");
+      showToast("Số tiền không hợp lệ.", "warning");
       setBusy(false);
       return;
     }
@@ -505,7 +555,9 @@ export default function Home() {
     setBusy(false);
     if (error) {
       setAppMessage("Lỗi cập nhật giao dịch: " + error.message);
+      showToast("Lỗi cập nhật giao dịch: " + error.message, "error");
     } else {
+      showToast("Đã cập nhật giao dịch thành công!", "success");
       setEditTxModal(false);
       setEditingTx(null);
       loadTransactions(selected.id);
@@ -524,7 +576,9 @@ export default function Home() {
     setBusy(false);
     if (error) {
       setAppMessage("Lỗi xóa giao dịch: " + error.message);
+      showToast("Lỗi xóa giao dịch: " + error.message, "error");
     } else {
+      showToast("Đã xóa giao dịch thành công!", "info");
       setDeleteTxConfirmId(null);
       loadTransactions(selected.id);
       loadContacts();
@@ -1380,6 +1434,36 @@ export default function Home() {
           </form>
         </Modal>
       )}
+
+      {/* Toast Notifications */}
+      <div className="fixed top-4 left-1/2 z-50 flex w-full max-w-sm -translate-x-1/2 flex-col gap-2.5 px-4 pointer-events-none">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className={`flex items-center gap-3 rounded-2xl border px-4 py-3.5 shadow-lg pointer-events-auto backdrop-blur-md transition-all duration-300 animate-in slide-in-from-top-5 ${
+              toast.type === "success"
+                ? "bg-[#eaf5ef]/95 text-emerald-800 border-emerald-200/50"
+                : toast.type === "error"
+                ? "bg-[#fbeae5]/95 text-red-800 border-red-200/50"
+                : toast.type === "warning"
+                ? "bg-[#fdf6e2]/95 text-amber-800 border-amber-200/50"
+                : "bg-[#e3f2f0]/95 text-teal-800 border-teal-200/50"
+            }`}
+          >
+            {toast.type === "success" && <Check size={18} className="shrink-0 text-[#2c6e49]" />}
+            {toast.type === "error" && <AlertTriangle size={18} className="shrink-0 text-[#c94e2a]" />}
+            {toast.type === "warning" && <AlertTriangle size={18} className="shrink-0 text-amber-600" />}
+            {toast.type === "info" && <CircleDollarSign size={18} className="shrink-0 text-teal-600" />}
+            <span className="text-sm font-bold tracking-wide">{toast.message}</span>
+            <button
+              onClick={() => setToasts((prev) => prev.filter((t) => t.id !== toast.id))}
+              className="ml-auto p-0.5 rounded-lg hover:bg-black/5 text-[#8b8175] hover:text-[#24322f] transition-colors"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
     </main>
   );
 }

@@ -21,6 +21,8 @@ import {
   TrendingDown,
   TrendingUp,
   AlertTriangle,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
@@ -111,7 +113,7 @@ function getAmountSuggestions(rawValue: string): string[] {
 export default function Home() {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(!isSupabaseConfigured);
-  const [mode, setMode] = useState<"login" | "register" | "otp">("login");
+  const [mode, setMode] = useState<"login" | "register" | "otp" | "forgot" | "forgot_otp">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [otp, setOtp] = useState("");
@@ -119,6 +121,8 @@ export default function Home() {
   const [authMessage, setAuthMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [showPassword, setShowPassword] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
 
   const showToast = (message: string, type: ToastType = "success") => {
     const id = Math.random().toString(36).substring(2, 9);
@@ -127,6 +131,28 @@ export default function Home() {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 4000);
   };
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setTimeout(() => setCooldown((prev) => prev - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [cooldown]);
+
+  useEffect(() => {
+    if (mode === "forgot") {
+      const emailInput = document.querySelector('input[type="email"]') as HTMLInputElement | null;
+      emailInput?.focus();
+    } else if (mode === "otp" || mode === "forgot_otp") {
+      setTimeout(() => {
+        const firstOtp = document.getElementById("otp-0");
+        firstOtp?.focus();
+      }, 50);
+    } else if (mode === "login" || mode === "register") {
+      const emailInput = document.querySelector('input[type="email"]') as HTMLInputElement | null;
+      emailInput?.focus();
+    }
+    setShowPassword(false);
+  }, [mode]);
 
   const [tab, setTab] = useState<DebtSide>("I_OWE");
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -169,15 +195,23 @@ export default function Home() {
   useEffect(() => {
     if (!isSupabaseConfigured) return;
 
-    supabase.auth.getUser().then(({ data }) => {
-      const last = Number(localStorage.getItem(activityKey) || 0);
-      if (data.user && last && Date.now() - last > FIVE_DAYS) {
-        supabase.auth.signOut();
+    supabase.auth.getUser().then(({ data, error }) => {
+      if (error) {
+        // Clear invalid local auth session if it's broken
+        supabase.auth.signOut().catch(() => {});
         setUser(null);
       } else {
-        setUser(data.user ?? null);
-        if (data.user) localStorage.setItem(activityKey, String(Date.now()));
+        const last = Number(localStorage.getItem(activityKey) || 0);
+        if (data?.user && last && Date.now() - last > FIVE_DAYS) {
+          supabase.auth.signOut().catch(() => {});
+          setUser(null);
+        } else {
+          setUser(data?.user ?? null);
+          if (data?.user) localStorage.setItem(activityKey, String(Date.now()));
+        }
       }
+      setAuthReady(true);
+    }).catch(() => {
       setAuthReady(true);
     });
 
@@ -364,6 +398,7 @@ export default function Home() {
         showToast(result.error ?? "Không gửi được OTP.", "error");
       } else {
         setOtpArray(["", "", "", "", "", ""]);
+        setCooldown(60);
         setMode("otp");
         setAuthMessage("Đã gửi mã OTP bằng Gmail cá nhân. Hãy kiểm tra Hộp thư đến hoặc Spam.");
         showToast("Đã gửi mã OTP thành công! Hãy kiểm tra Gmail.", "success");
@@ -381,6 +416,57 @@ export default function Home() {
       await verifyAndRegisterOtp(code);
     }
 
+    if (mode === "forgot") {
+      const response = await fetch("/api/auth/forgot-password/send-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setAuthMessage(result.error ?? "Không gửi được OTP khôi phục.");
+        showToast(result.error ?? "Không gửi được OTP khôi phục.", "error");
+      } else {
+        setOtpArray(["", "", "", "", "", ""]);
+        setCooldown(60);
+        setPassword("");
+        setMode("forgot_otp");
+        setAuthMessage("Đã gửi mã OTP khôi phục mật khẩu. Hãy kiểm tra Gmail.");
+        showToast("Đã gửi mã OTP khôi phục thành công!", "success");
+      }
+    }
+
+    if (mode === "forgot_otp") {
+      const code = otpArray.join("");
+      if (code.length !== 6) {
+        setAuthMessage("Vui lòng nhập đầy đủ 6 chữ số OTP.");
+        showToast("Vui lòng nhập đầy đủ 6 chữ số OTP.", "warning");
+        setBusy(false);
+        return;
+      }
+      if (password.length < 6) {
+        setAuthMessage("Mật khẩu mới phải có ít nhất 6 ký tự.");
+        showToast("Mật khẩu mới phải có ít nhất 6 ký tự.", "warning");
+        setBusy(false);
+        return;
+      }
+      const response = await fetch("/api/auth/forgot-password/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, otp: code }),
+      });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setAuthMessage(result.error ?? "Không thể đặt lại mật khẩu.");
+        showToast(result.error ?? "Không thể đặt lại mật khẩu.", "error");
+      } else {
+        setAuthMessage("");
+        showToast("Đổi mật khẩu thành công! Hãy đăng nhập lại.", "success");
+        setMode("login");
+        setPassword("");
+      }
+    }
+
     setBusy(false);
   }
 
@@ -391,7 +477,8 @@ export default function Home() {
       return;
     }
     setBusy(true);
-    const response = await fetch("/api/auth/send-otp", {
+    const endpoint = mode === "forgot_otp" ? "/api/auth/forgot-password/send-otp" : "/api/auth/send-otp";
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email }),
@@ -399,6 +486,7 @@ export default function Home() {
     const result = (await response.json()) as { error?: string };
     if (response.ok) {
       setOtpArray(["", "", "", "", "", ""]);
+      setCooldown(60);
       setAuthMessage("Đã gửi lại OTP bằng Gmail cá nhân.");
       showToast("Đã gửi lại mã OTP thành công!", "success");
     } else {
@@ -696,52 +784,91 @@ export default function Home() {
               </div>
             )}
 
-            <div className="mb-6 grid grid-cols-2 rounded-2xl bg-[#efe8dc] p-1.5 border border-[#ded5c6]/30">
-              <button 
-                type="button" 
-                onClick={() => setMode("login")} 
-                className={`h-11 rounded-xl text-sm font-black transition-all ${mode === "login" ? "bg-white text-[#24322f] shadow-sm" : "text-[#7d776d] hover:text-[#24322f]"}`}
-              >
-                Đăng nhập
-              </button>
-              <button 
-                type="button" 
-                onClick={() => setMode("register")} 
-                className={`h-11 rounded-xl text-sm font-black transition-all ${mode !== "login" ? "bg-white text-[#24322f] shadow-sm" : "text-[#7d776d] hover:text-[#24322f]"}`}
-              >
-                Đăng ký
-              </button>
-            </div>
+            {mode !== "forgot" && mode !== "forgot_otp" ? (
+              <div className="mb-6 grid grid-cols-2 rounded-2xl bg-[#efe8dc] p-1.5 border border-[#ded5c6]/30">
+                <button 
+                  type="button" 
+                  onClick={() => { setMode("login"); setAuthMessage(""); }} 
+                  className={`h-11 rounded-xl text-sm font-black transition-all ${mode === "login" ? "bg-white text-[#24322f] shadow-sm" : "text-[#7d776d] hover:text-[#24322f]"}`}
+                >
+                  Đăng nhập
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => { setMode("register"); setAuthMessage(""); }} 
+                  className={`h-11 rounded-xl text-sm font-black transition-all ${mode === "register" || mode === "otp" ? "bg-white text-[#24322f] shadow-sm" : "text-[#7d776d] hover:text-[#24322f]"}`}
+                >
+                  Đăng ký
+                </button>
+              </div>
+            ) : (
+              <div className="mb-6 flex items-center justify-between">
+                <h2 className="text-xl font-black text-[#24322f]">
+                  Khôi phục mật khẩu
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => { setMode("login"); setAuthMessage(""); }}
+                  className="text-xs font-bold text-[#315b52] hover:underline"
+                >
+                  Quay lại đăng nhập
+                </button>
+              </div>
+            )}
 
             <label className="mb-4 block">
               <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-[#55615d]">Địa chỉ Gmail</span>
-              <span className="flex h-13 items-center gap-3 rounded-2xl border border-[#ded5c6] bg-white px-4 transition-all focus-within:border-[#315b52] focus-within:ring-2 focus-within:ring-[#315b52]/10">
+              <span className={`flex h-13 items-center gap-3 rounded-2xl border border-[#ded5c6] px-4 transition-all focus-within:border-[#315b52] focus-within:ring-2 focus-within:ring-[#315b52]/10 ${mode === "forgot_otp" ? "bg-gray-50 opacity-60" : "bg-white"}`}>
                 <Mail size={18} className="text-[#7d776d]" />
                 <input 
                   value={email} 
                   onChange={(e) => setEmail(e.target.value)} 
                   type="email" 
                   required 
+                  disabled={mode === "forgot_otp"}
                   placeholder="name@gmail.com" 
                   className="w-full bg-transparent text-base outline-none text-[#24322f] placeholder-[#a69d90]" 
                 />
               </span>
             </label>
 
-            {mode !== "otp" ? (
+            {mode === "login" || mode === "register" ? (
               <label className="mb-6 block">
-                <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-[#55615d]">Mật khẩu</span>
-                <input 
-                  value={password} 
-                  onChange={(e) => setPassword(e.target.value)} 
-                  type="password" 
-                  required 
-                  minLength={6} 
-                  placeholder="Tối thiểu 6 ký tự" 
-                  className="h-13 w-full rounded-2xl border border-[#ded5c6] bg-white px-4 text-base outline-none transition-all focus:border-[#315b52] focus:ring-2 focus:ring-[#315b52]/10 text-[#24322f] placeholder-[#a69d90]" 
-                />
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-[#55615d]">Mật khẩu</span>
+                  {mode === "login" && (
+                    <button 
+                      type="button" 
+                      onClick={() => {
+                        setMode("forgot");
+                        setAuthMessage("");
+                      }}
+                      className="text-xs font-bold text-[#315b52] hover:underline"
+                    >
+                      Quên mật khẩu?
+                    </button>
+                  )}
+                </div>
+                <span className="flex h-13 items-center gap-3 rounded-2xl border border-[#ded5c6] bg-white px-4 transition-all focus-within:border-[#315b52] focus-within:ring-2 focus-within:ring-[#315b52]/10">
+                  <input 
+                    value={password} 
+                    onChange={(e) => setPassword(e.target.value)} 
+                    type={showPassword ? "text" : "password"} 
+                    required 
+                    minLength={6} 
+                    placeholder="Tối thiểu 6 ký tự" 
+                    className="w-full bg-transparent text-base outline-none text-[#24322f] placeholder-[#a69d90]" 
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="text-[#7d776d] hover:text-[#24322f] transition-colors focus:outline-none"
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </span>
               </label>
-            ) : (
+            ) : mode === "otp" ? (
               <div className="mb-6 block">
                 <span className="mb-3 block text-xs font-bold uppercase tracking-wider text-[#55615d]">Mã OTP trong Gmail</span>
                 <div className="grid grid-cols-6 gap-2">
@@ -762,7 +889,52 @@ export default function Home() {
                   ))}
                 </div>
               </div>
-            )}
+            ) : mode === "forgot_otp" ? (
+              <>
+                <div className="mb-6 block">
+                  <span className="mb-3 block text-xs font-bold uppercase tracking-wider text-[#55615d]">Mã OTP khôi phục mật khẩu</span>
+                  <div className="grid grid-cols-6 gap-2">
+                    {otpArray.map((digit, index) => (
+                      <input
+                        key={index}
+                        id={`otp-${index}`}
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        maxLength={1}
+                        value={digit}
+                        onChange={(e) => handleOtpChange(e.target.value, index)}
+                        onKeyDown={(e) => handleOtpKeyDown(e, index)}
+                        onPaste={handleOtpPaste}
+                        className="h-12 w-full rounded-xl border border-[#ded5c6] bg-white text-center text-xl font-black text-[#24322f] outline-none transition-all focus:border-[#315b52] focus:ring-2 focus:ring-[#315b52]/10 animate-fade-in"
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <label className="mb-6 block">
+                  <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-[#55615d]">Mật khẩu mới</span>
+                  <span className="flex h-13 items-center gap-3 rounded-2xl border border-[#ded5c6] bg-white px-4 transition-all focus-within:border-[#315b52] focus-within:ring-2 focus-within:ring-[#315b52]/10">
+                    <input 
+                      value={password} 
+                      onChange={(e) => setPassword(e.target.value)} 
+                      type={showPassword ? "text" : "password"} 
+                      required 
+                      minLength={6} 
+                      placeholder="Tối thiểu 6 ký tự mới" 
+                      className="w-full bg-transparent text-base outline-none text-[#24322f] placeholder-[#a69d90]" 
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="text-[#7d776d] hover:text-[#24322f] transition-colors focus:outline-none"
+                    >
+                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </span>
+                </label>
+              </>
+            ) : null}
 
             {authMessage && (
               <div className="mb-5 flex gap-2 rounded-2xl bg-[#fff6df] px-4 py-3 text-xs leading-relaxed text-[#7b5a13] border border-[#f1c9a7]/30">
@@ -777,22 +949,33 @@ export default function Home() {
             >
               {busy ? (
                 <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-              ) : mode === "otp" ? (
+              ) : (mode === "otp" || mode === "forgot_otp") ? (
                 <ShieldCheck size={18} />
               ) : (
                 <Check size={18} />
               )}
-              {busy ? "Đang xử lý..." : mode === "login" ? "Vào ứng dụng" : mode === "register" ? "Tạo tài khoản" : "Xác thực OTP"}
+              {busy 
+                ? "Đang xử lý..." 
+                : mode === "login" 
+                  ? "Vào ứng dụng" 
+                  : mode === "register" 
+                    ? "Tạo tài khoản" 
+                    : mode === "forgot"
+                      ? "Gửi mã khôi phục"
+                      : mode === "forgot_otp"
+                        ? "Cập nhật mật khẩu"
+                        : "Xác thực OTP"
+              }
             </button>
 
-            {mode === "otp" && (
+            {(mode === "otp" || mode === "forgot_otp") && (
               <button 
                 type="button" 
                 onClick={resendOtp} 
-                disabled={busy} 
+                disabled={busy || cooldown > 0} 
                 className="mt-3 h-11 w-full rounded-2xl border border-[#ded5c6] bg-white text-sm font-bold text-[#315b52] disabled:opacity-60 hover:bg-gray-50 transition-colors"
               >
-                Gửi lại mã OTP
+                {cooldown > 0 ? `Gửi lại mã OTP (${cooldown}s)` : "Gửi lại mã OTP"}
               </button>
             )}
           </form>

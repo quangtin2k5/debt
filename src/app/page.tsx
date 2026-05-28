@@ -833,7 +833,7 @@ export default function Home() {
             </label>
 
             {mode === "login" || mode === "register" ? (
-              <label className="mb-6 block">
+              <div className="mb-6 block">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-xs font-bold uppercase tracking-wider text-[#55615d]">Mật khẩu</span>
                   {mode === "login" && (
@@ -867,7 +867,7 @@ export default function Home() {
                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </span>
-              </label>
+              </div>
             ) : mode === "otp" ? (
               <div className="mb-6 block">
                 <span className="mb-3 block text-xs font-bold uppercase tracking-wider text-[#55615d]">Mã OTP trong Gmail</span>
@@ -912,7 +912,7 @@ export default function Home() {
                   </div>
                 </div>
 
-                <label className="mb-6 block">
+                <div className="mb-6 block">
                   <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-[#55615d]">Mật khẩu mới</span>
                   <span className="flex h-13 items-center gap-3 rounded-2xl border border-[#ded5c6] bg-white px-4 transition-all focus-within:border-[#315b52] focus-within:ring-2 focus-within:ring-[#315b52]/10">
                     <input 
@@ -932,7 +932,7 @@ export default function Home() {
                       {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
                   </span>
-                </label>
+                </div>
               </>
             ) : null}
 
@@ -1349,7 +1349,7 @@ export default function Home() {
                 />
               </label>
               
-              <label className="block">
+              <div className="block">
                 <span className="mb-2 block text-sm font-bold text-[#24322f]">Phân loại ban đầu</span>
                 <div className="grid grid-cols-2 rounded-2xl bg-[#efe8dc] p-1 border border-[#ded5c6]/30">
                   <button 
@@ -1367,7 +1367,7 @@ export default function Home() {
                     Người ta nợ tôi
                   </button>
                 </div>
-              </label>
+              </div>
 
               <div className="flex flex-col gap-3 pt-2">
                 <button 
@@ -1450,7 +1450,7 @@ export default function Home() {
                 Trả nợ
               </button>
             </div>
-            <label className="block">
+            <div className="block">
               <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-[#55615d]">Số tiền (VND)</span>
               <input 
                 value={txAmount} 
@@ -1482,7 +1482,7 @@ export default function Home() {
                   </div>
                 );
               })()}
-            </label>
+            </div>
             <label className="block">
               <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-[#55615d]">Ngày phát sinh</span>
               <input 
@@ -1546,7 +1546,7 @@ export default function Home() {
                 Trả nợ
               </button>
             </div>
-            <label className="block">
+            <div className="block">
               <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-[#55615d]">Số tiền (VND)</span>
               <input 
                 value={editTxAmount} 
@@ -1578,7 +1578,7 @@ export default function Home() {
                   </div>
                 );
               })()}
-            </label>
+            </div>
             <label className="block">
               <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-[#55615d]">Ngày phát sinh</span>
               <input 
